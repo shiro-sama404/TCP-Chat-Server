@@ -1,0 +1,26 @@
+# Build
+/build/
+build/
+out/
+bin/
+CMakeFiles/
+CMakeCache.txt
+
+# Binários
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.so
+
+# Logs
+*.log
+
+# Arquivos temporários
+*~
+*.swp
+
+# VSCode
+.vscode/
+.vscode/settings.json
