@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include "client.hpp"
 
 
 enum class CommandType
@@ -29,7 +30,7 @@ class Interface
 {
 public:
     Interface() = default;
-    void run();
+    void run(Client& client);
     static void help();
 
 private:
