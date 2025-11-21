@@ -1,13 +1,12 @@
 #include "client.hpp"
 #include "interface.hpp"
-#include "server.hpp" // Requer a definição da classe Server
+#include "server.hpp" 
 #include <iostream>
 #include <cstring>
 #include <stdexcept>
 
 using namespace std;
 
-// Porta padrão para a conexão TCP
 const int DEFAULT_PORT = 12345; 
 
 int main(int argc, char* argv[]) {

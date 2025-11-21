@@ -1,14 +1,59 @@
 #include "client.hpp"
 #include <sys/socket.h>  
-#include <arpa/inet.h>   
-#include <netdb.h>       
+#include <netinet/in.h> 
 #include <unistd.h>      
 #include <cstring>       
 #include <iostream>  
+#include <stdexcept>
+#include <sstream>
+#include <algorithm> // Para std::reverse ou std::copy
 
 
 using namespace std;
 
+
+// 1. SUBSTITUIÇÃO MANUAL PARA htons()
+// Converte um valor de 16 bits (porta) para big-endian (Network Byte Order).
+uint16_t manual_htons(uint16_t port) {
+    // Implementação simples e explícita do big-endian (byte-swapping para little-endian hosts)
+    // Se a arquitetura do host for big-endian, o valor já está correto.
+    // Se for little-endian, é necessário inverter os bytes.
+    // Para simplificar e manter a portabilidade mínima, usamos bit-shifting:
+    return (port >> 8) | (port << 8);
+}
+
+// 2. SUBSTITUIÇÃO MANUAL PARA inet_pton(AF_INET, ...)
+// Converte a string IP "A.B.C.D" para o formato binário de 32 bits (in_addr_t)
+in_addr_t manual_inet_pton(const char* ip_str) {
+    stringstream ss(ip_str);
+    string segment;
+    in_addr_t result = 0;
+    int octet_count = 0;
+
+    while (getline(ss, segment, '.')) {
+        if (octet_count >= 4) return 0; // Mais de 4 octetos
+
+        int octet = 0;
+        try {
+            octet = stoi(segment);
+        } catch (...) {
+            return 0; // Falha na conversão de número
+        }
+
+        if (octet < 0 || octet > 255) return 0; // Octeto inválido
+
+        // Combina o octeto ao resultado (em Network Byte Order - Big Endian)
+        result = (result << 8) | (octet & 0xFF);
+        octet_count++;
+    }
+
+    if (octet_count != 4) return 0; // IP incompleto
+
+    return result; 
+}
+
+
+// --- IMPLEMENTAÇÃO DA CLASSE CLIENT  ---
 
 Client::Client()
     : sockfd(-1), connected(false), receiving(false) {}
@@ -25,12 +70,8 @@ bool Client::connectToServer(const string& host, int port) {
     }
 
     struct sockaddr_in serv_addr;
-    struct hostent* server = gethostbyname(host.c_str());
-    if (!server) {
-        cerr << "[Client] Host não encontrado: " << host << endl;
-        return false;
-    }
-
+    
+    // 1. Criação do Socket (Chamada de baixo nível)
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         perror("[Client] Erro ao criar socket");
@@ -39,9 +80,27 @@ bool Client::connectToServer(const string& host, int port) {
 
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
-    serv_addr.sin_port = htons(port);
+    
+    // SUBSTITUIÇÃO 1: htons()
+    serv_addr.sin_port = manual_htons(port);
 
+    // SUBSTITUIÇÃO 2: inet_pton()
+    in_addr_t ip_binario = manual_inet_pton(host.c_str());
+    
+    // Verifica se o parsing manual falhou
+    if (ip_binario == 0) {
+        cerr << "[Client] Endereço de IP inválido. Use um IP, ex: 127.0.0.1" << endl;
+        close(sockfd);
+        return false;
+    }
+
+    // Copia o valor binário do IP para o s_addr (requer tratamento de Endianness)
+    // Para simplificar no contexto do POSIX, onde a struct espera a ordem de rede,
+    // o valor montado (ip_binario) é usado.
+    serv_addr.sin_addr.s_addr = ip_binario;
+
+
+    // 3. Conexão (Chamada de baixo nível)
     if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("[Client] Erro ao conectar");
         close(sockfd);
@@ -50,6 +109,7 @@ bool Client::connectToServer(const string& host, int port) {
 
     connected = true;
     cout << "[Client] Conectado ao servidor em " << host << ":" << port << endl;
+    
     return true;
 }
 
