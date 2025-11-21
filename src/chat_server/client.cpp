@@ -1,29 +1,27 @@
 #include "client.hpp"
-#include <sys/socket.h>  
-#include <netinet/in.h> 
-#include <unistd.h>      
-#include <cstring>       
-#include <iostream>  
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <cstring>
+#include <iostream>
 #include <stdexcept>
 #include <sstream>
-#include <algorithm> // Para std::reverse ou std::copy
-
+#include <algorithm>
+#include <fcntl.h>       // ← necessário para O_NONBLOCK
+#include <errno.h>
 
 using namespace std;
 
+// =============================
+// SUBSTITUTOS MANUAIS
+// =============================
 
-// 1. SUBSTITUIÇÃO MANUAL PARA htons()
-// Converte um valor de 16 bits (porta) para big-endian (Network Byte Order).
+// htons manual
 uint16_t manual_htons(uint16_t port) {
-    // Implementação simples e explícita do big-endian (byte-swapping para little-endian hosts)
-    // Se a arquitetura do host for big-endian, o valor já está correto.
-    // Se for little-endian, é necessário inverter os bytes.
-    // Para simplificar e manter a portabilidade mínima, usamos bit-shifting:
     return (port >> 8) | (port << 8);
 }
 
-// 2. SUBSTITUIÇÃO MANUAL PARA inet_pton(AF_INET, ...)
-// Converte a string IP "A.B.C.D" para o formato binário de 32 bits (in_addr_t)
+// inet_pton manual
 in_addr_t manual_inet_pton(const char* ip_str) {
     stringstream ss(ip_str);
     string segment;
@@ -31,29 +29,32 @@ in_addr_t manual_inet_pton(const char* ip_str) {
     int octet_count = 0;
 
     while (getline(ss, segment, '.')) {
-        if (octet_count >= 4) return 0; // Mais de 4 octetos
+        if (octet_count >= 4)
+            return (in_addr_t)(-1);
 
         int octet = 0;
         try {
             octet = stoi(segment);
         } catch (...) {
-            return 0; // Falha na conversão de número
+            return (in_addr_t)(-1);
         }
 
-        if (octet < 0 || octet > 255) return 0; // Octeto inválido
+        if (octet < 0 || octet > 255)
+            return (in_addr_t)(-1);
 
-        // Combina o octeto ao resultado (em Network Byte Order - Big Endian)
         result = (result << 8) | (octet & 0xFF);
         octet_count++;
     }
 
-    if (octet_count != 4) return 0; // IP incompleto
+    if (octet_count != 4)
+        return (in_addr_t)(-1);
 
-    return result; 
+    return result;
 }
 
-
-// --- IMPLEMENTAÇÃO DA CLASSE CLIENT  ---
+// =============================
+// CLIENTE
+// =============================
 
 Client::Client()
     : sockfd(-1), connected(false), receiving(false) {}
@@ -64,14 +65,14 @@ Client::~Client() {
 }
 
 bool Client::connectToServer(const string& host, int port) {
+
     if (connected) {
         cerr << "[Client] Já conectado a um servidor." << endl;
         return false;
     }
 
     struct sockaddr_in serv_addr;
-    
-    // 1. Criação do Socket (Chamada de baixo nível)
+
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         perror("[Client] Erro ao criar socket");
@@ -80,36 +81,36 @@ bool Client::connectToServer(const string& host, int port) {
 
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    
-    // SUBSTITUIÇÃO 1: htons()
     serv_addr.sin_port = manual_htons(port);
 
-    // SUBSTITUIÇÃO 2: inet_pton()
-    in_addr_t ip_binario = manual_inet_pton(host.c_str());
-    
-    // Verifica se o parsing manual falhou
-    if (ip_binario == 0) {
-        cerr << "[Client] Endereço de IP inválido. Use um IP, ex: 127.0.0.1" << endl;
-        close(sockfd);
-        return false;
-    }
+    // in_addr_t ip_binario = manual_inet_pton(host.c_str());
+    // if (ip_binario == (in_addr_t)(-1)) {
+    //     cerr << "[Client] Endereço de IP inválido." << endl;
+    //     close(sockfd);
+    //     return false;
+    // }
 
-    // Copia o valor binário do IP para o s_addr (requer tratamento de Endianness)
-    // Para simplificar no contexto do POSIX, onde a struct espera a ordem de rede,
-    // o valor montado (ip_binario) é usado.
-    serv_addr.sin_addr.s_addr = ip_binario;
+    // serv_addr.sin_addr.s_addr = ip_binario;
 
+    serv_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-    // 3. Conexão (Chamada de baixo nível)
+    cout << "[DEBUG] Conectando em " << host << ":" << port << endl;
+
     if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("[Client] Erro ao conectar");
         close(sockfd);
         return false;
     }
 
+    // ============
+    //  MODO NÃO BLOQUEANTE
+    // ============
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
     connected = true;
     cout << "[Client] Conectado ao servidor em " << host << ":" << port << endl;
-    
+
     return true;
 }
 
@@ -119,7 +120,7 @@ bool Client::sendJson(const string& json) {
         return false;
     }
 
-    string message = json + "\n"; // framing por linha
+    string message = json + "\n";
     ssize_t bytesSent = send(sockfd, message.c_str(), message.size(), 0);
 
     if (bytesSent < 0) {
@@ -130,20 +131,40 @@ bool Client::sendJson(const string& json) {
     return true;
 }
 
+// =============================
+// RECEBIMENTO NÃO BLOQUEANTE
+// =============================
 optional<string> Client::receiveJson() {
     if (!connected) return nullopt;
 
     string buffer;
     char ch;
+
     while (true) {
         ssize_t bytes = recv(sockfd, &ch, 1, 0);
-        if (bytes <= 0) {
+
+        if (bytes < 0) {
+            // Nenhum dado disponível agora → cliente continua
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+                return nullopt;
+
+            // Outro erro → desconecta
             connected = false;
             return nullopt;
         }
-        if (ch == '\n') break;
+
+        if (bytes == 0) {
+            // Servidor fechou a conexão
+            connected = false;
+            return nullopt;
+        }
+
+        if (ch == '\n')
+            break;
+
         buffer += ch;
     }
+
     return buffer;
 }
 
@@ -154,6 +175,10 @@ void Client::disconnect() {
         cout << "[Client] Desconectado do servidor." << endl;
     }
 }
+
+// =============================
+// THREAD DE RECEPÇÃO
+// =============================
 
 void Client::startReceiverThread() {
     if (!connected || receiving) return;
@@ -170,12 +195,24 @@ void Client::stopReceiverThread() {
 }
 
 void Client::receiverLoop() {
-    while (receiving && connected) {
-        auto msg = receiveJson();
-        if (!msg) break;
+    while (receiving) {
 
-        lock_guard<std::mutex> lock(queueMutex);
-        messageQueue.push(*msg);
+        if (!connected) {
+            this_thread::sleep_for(chrono::milliseconds(10));
+            continue;
+        }
+        
+        
+        auto msg = receiveJson();
+        
+        if (msg) {
+
+            lock_guard<mutex> lock(queueMutex);
+            messageQueue.push(*msg);
+        }
+
+        // evitar busy loop excessivo
+        this_thread::sleep_for(chrono::milliseconds(5));
     }
 }
 

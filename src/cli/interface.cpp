@@ -156,24 +156,24 @@ Command Interface::parse(const string& line)
 // arrumar a chamada dessa função
 void Interface::run(Client& client)
 {
+
     cout << "\nBem-vindo ao Mensageiro Rudimentar!" << endl;
     cout << "Digite 'help' para ver os comandos disponíveis." << endl;
-
+    cout << "[DEBUG] Tentando conectar na porta 12345..." << endl;
     // Conexão inicial
     if (!client.connectToServer("127.0.0.1", 12345))
     {
         error("Falha ao conectar ao servidor.");
         return;
     }
-
-    client.startReceiverThread(); 
+    cout << "[DEBUG] nao deu erro..." << endl;
+   
+    client.startReceiverThread();
 
     string line;
-    
+
+    // Loop principal: processa mensagens recebidas e lê comandos do usuário
     while (true)
-    {
-        // Exibe mensagens recebidas (se houver)
-        while (true)
     {
         // 1. Processa mensagens recebidas da thread receptora
         while (auto msg = client.popReceivedMessage())
@@ -185,24 +185,21 @@ void Interface::run(Client& client)
                 cerr << "\033[1;31m[Erro de Parsing]\033[0m Mensagem inválida recebida: " << *msg << endl;
                 continue;
             }
-            
+
             string type = received.value("type", "UNKNOWN");
 
             if (type == "LOGIN_OK" || type == "OK") {
                 cout << "\033[1;32m[OK]\033[0m Comando executado com sucesso." << endl;
             }
             else if (type == "ERROR") {
-                // Acessa o campo "message" dentro do "payload"
                 error(received["payload"].value("message", "Erro desconhecido."));
             }
             else if (type == "DELIVER_MSG") {
-                // Mensagem recebida assincronamente (chat)
                 string from = received.value("from", "Desconhecido");
                 string text = received["payload"].value("text", "");
                 cout << "\n\033[1;34m[" << from << "]\033[0m: " << text << endl;
             }
             else if (type == "USERS") {
-                // Resposta ao comando LIST
                 cout << "\n--- LISTA DE USUÁRIOS ---\n";
                 if (received["payload"].count("users")) {
                     for (const auto& user : received["payload"]["users"]) {
@@ -215,13 +212,12 @@ void Interface::run(Client& client)
             else {
                 cout << "\033[1;30m[DEBUG]\033[0m Mensagem não reconhecida: " << *msg << endl;
             }
-        }
-
-        prompt();
-
+        } // fim do processamento das mensagens recebidas
+    
+        // 2. ler comando do usuário
         prompt();
         if (!getline(cin, line))
-            break;
+            break; // sai do loop principal se EOF/erro na entrada
 
         if (line.empty())
             continue;
@@ -292,10 +288,10 @@ void Interface::run(Client& client)
             continue;
         }
 
-
         if (!client.sendJson(j))
             error("Falha ao enviar mensagem.");
-    }
+    } // fim do loop principal
 
     client.disconnect();
 }
+
