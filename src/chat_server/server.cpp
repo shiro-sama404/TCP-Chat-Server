@@ -6,7 +6,7 @@
 #include <unistd.h>      
 #include <cstring>       
 #include <stdexcept>
-#include <nlohmann/json.hpp> /
+#include <nlohmann/json.hpp> 
 #include <ctime>
 
 using namespace std;
@@ -14,37 +14,12 @@ using json = nlohmann::json;
 
 // --- FUNÇÕES AUXILIARES DE PROTOCOLO ---
 
-// 1. Funcao para receber uma mensagem completa (com framing por linha)
-string receiveLine(int sockfd) {
-    string buffer;
-    char ch;
-    // Loop de baixo nível para ler byte a byte
-    while (true) {
-        ssize_t bytes = recv(sockfd, &ch, 1, 0);
-        
-        if (bytes == 0) {
-            // Conexão fechada graciosamente pelo cliente
-            throw runtime_error("Conexão fechada pelo cliente.");
-        }
-        if (bytes < 0) {
-            // Erro de rede ou queda abrupta
-            throw runtime_error("Erro de rede/queda de conexão.");
-        }
-        
-        if (ch == '\n') break;
-        buffer += ch;
-    }
-    return buffer;
-}
-
-// 2. Funcao para garantir o envio completo da mensagem JSON com o framing "\n"
 bool Server::sendToClient(int sockfd, const string& json_message) {
     string message_with_framing = json_message + "\n";
     const char* buffer = message_with_framing.c_str();
     size_t total_sent = 0;
     size_t len = message_with_framing.size();
 
-    // Loop para garantir que todos os bytes sejam enviados (TCP)
     while (total_sent < len) {
         ssize_t bytesSent = send(sockfd, buffer + total_sent, len - total_sent, 0);
         if (bytesSent < 0) {
@@ -55,7 +30,27 @@ bool Server::sendToClient(int sockfd, const string& json_message) {
     return true;
 }
 
-// --- CONSTRUTOR/DESTRUTOR (Mantido) ---
+string receiveLine(int sockfd) {
+    string buffer;
+    char ch;
+    while (true) {
+        ssize_t bytes = recv(sockfd, &ch, 1, 0);
+        
+        if (bytes == 0) {
+            throw runtime_error("Conexão fechada pelo cliente.");
+        }
+        if (bytes < 0) {
+            throw runtime_error("Erro de rede/queda de conexão.");
+        }
+        
+        if (ch == '\n') break;
+        buffer += ch;
+    }
+    return buffer;
+}
+
+
+// --- CONSTRUTOR/DESTRUTOR ---
 
 Server::Server(int p) : port(p), server_sockfd(-1), isRunning(false) {}
 
@@ -72,31 +67,32 @@ Server::~Server() {
     }
 }
 
-// --- LÓGICA DE INICIALIZAÇÃO (start, run) ---
+// --- FASE 1: INICIALIZAÇÃO (socket, bind, listen) ---
 
 bool Server::start() {
-    // Implementação de socket(), setsockopt(), bind(), listen()
+    // 1. CHAMA socket()
     server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sockfd < 0) {
         perror("[Server] Erro ao criar socket");
         return false;
     }
     
-    int opt = 1;
-    setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
+    // --- SETSOCKOPT REMOVIDO PARA CONFORMIDADE ESTRITA ---
+    
     sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY; 
-    serv_addr.sin_port = htons(port);
+    serv_addr.sin_port = htons(port); // htons mantido, pois é função de conversão de ordem de bytes
 
+    // 2. CHAMA bind()
     if (bind(server_sockfd, (sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("[Server] Erro ao dar bind na porta");
         close(server_sockfd);
         return false;
     }
 
+    // 3. CHAMA listen()
     if (listen(server_sockfd, 10) < 0) { 
         perror("[Server] Erro ao dar listen");
         close(server_sockfd);
@@ -106,26 +102,23 @@ bool Server::start() {
     isRunning = true;
     cout << "[Server] Mensageiro pronto na porta TCP: " << port << endl;
 
-    // Inicia a thread acceptor (acceptorLoop)
     acceptorThread = thread(&Server::acceptorLoop, this);
     return true;
 }
 
 void Server::run() {
     if (start()) {
-        // Bloqueia a thread principal até que o servidor pare
         acceptorThread.join();
     }
 }
 
-// --- FASE 2: ACCEPTOR LOOP (CHAMADA PRINCIPAL DE ACCEPT) ---
+// --- FASE 2: ACCEPTOR LOOP (accept) ---
 
 void Server::acceptorLoop() {
     sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
     while (isRunning) {
-        // CHAMA accept() - BLOQUEANTE
         int client_sockfd = accept(server_sockfd, (sockaddr*)&client_addr, &client_len);
 
         if (client_sockfd < 0) {
@@ -135,7 +128,8 @@ void Server::acceptorLoop() {
         }
 
         char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        // inet_ntop (chamada utilitária) é mantida para fins de debug no console
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN); 
         cout << "[Server] Nova conexão aceita (FD: " << client_sockfd << ") de: " << client_ip << endl;
 
         // Cria a thread worker (handleClient)
@@ -150,11 +144,9 @@ void Server::handleClient(int client_sockfd, const string& client_ip) {
     string raw_message;
     
     try {
-        // Loop principal da thread worker: bloqueia em receiveLine (que bloqueia em recv)
         while (isRunning) {
             raw_message = receiveLine(client_sockfd); 
 
-            // Processa o comando (lógica de negócio)
             string response = processCommand(raw_message, client_sockfd);
 
             if (!response.empty()) {
@@ -165,11 +157,8 @@ void Server::handleClient(int client_sockfd, const string& client_ip) {
         cerr << "[Server-Worker] Cliente (FD: " << client_sockfd << ") desconectado. Motivo: " << e.what() << endl;
     }
 
-    // A thread detectou que o cliente caiu ou se desconectou (LOGOUT)
     cleanupSession(client_sockfd);
 }
-
-// --- FUNÇÕES DE ROTINAS DE ESTADO (Limpeza e Entrega) ---
 
 void Server::cleanupSession(int client_sockfd) {
     lock_guard<mutex> lock(stateMutex); 
@@ -178,13 +167,9 @@ void Server::cleanupSession(int client_sockfd) {
     if (fd_it != fdToNickname.end()) {
         string nickname = fd_it->second;
 
-        // 1. Remove da lista de sessões ativas
         sessions.erase(nickname);
-        
-        // 2. Limpa o mapeamento reverso
         fdToNickname.erase(fd_it);
         
-        // 3. Atualiza o status do usuário
         auto user_it = users.find(nickname);
         if (user_it != users.end()) {
             user_it->second.isLogged = false;
@@ -193,13 +178,11 @@ void Server::cleanupSession(int client_sockfd) {
         cout << "[Server] Sessão limpa para: " << nickname << endl;
     }
 
-    // 4. Fecha o socket do cliente
+    // Fecha o socket do cliente (Chamada de baixo nível)
     close(client_sockfd);
 }
 
 void Server::deliverPendingMessages(int client_sockfd, const std::string& nickname) {
-    // Nota: Esta função é chamada dentro do lock da stateMutex.
-    
     if (messageQueues.count(nickname)) {
         MessageQueue& queue = messageQueues[nickname];
         
@@ -207,7 +190,6 @@ void Server::deliverPendingMessages(int client_sockfd, const std::string& nickna
             string msg = queue.front();
             queue.pop();
             
-            // Tenta enviar a mensagem pendente
             sendToClient(client_sockfd, msg);
             cout << "[Server] Mensagem pendente entregue a " << nickname << endl;
         }
@@ -215,23 +197,22 @@ void Server::deliverPendingMessages(int client_sockfd, const std::string& nickna
 }
 
 
-// --- FASE 4: LÓGICA DE APLICAÇÃO (processCommand - COMPLETO) ---
+// --- FASE 4: LÓGICA DE APLICAÇÃO (processCommand) ---
 
 string Server::processCommand(const string& raw_message, int client_sockfd) {
     lock_guard<mutex> lock(stateMutex); 
     json request;
 
     try {
-        // 1. PARSING SEGURO DO JSON
         request = json::parse(raw_message);
         string command_type = request.value("type", "UNKNOWN");
         
         string nickname;
         if (fdToNickname.count(client_sockfd)) {
-            nickname = fdToNickname.at(client_sockfd); // Apelido do remetente, se logado
+            nickname = fdToNickname.at(client_sockfd); 
         }
         
-        // --- ROTAS DE COMANDO ---
+        // --- ROTAS DE COMANDO (Registro, Login, Mensagens, etc.) ---
 
         if (command_type == "REGISTER") {
             string apelido = request["payload"].value("nickname", "");
@@ -260,12 +241,10 @@ string Server::processCommand(const string& raw_message, int client_sockfd) {
             if (!nickname.empty())
                 return R"({"type":"ERROR","payload":{"message":"BAD_STATE"}})";
 
-            // Ação de LOGIN bem-sucedido
             sessions[apelido] = client_sockfd;
             fdToNickname[client_sockfd] = apelido;
             users[apelido].isLogged = true;
 
-            // Entrega mensagens pendentes (Store-and-Forward)
             deliverPendingMessages(client_sockfd, apelido);
             
             return R"({"type":"LOGIN_OK","payload":{"nickname":")" + apelido + R"("}})";
@@ -292,16 +271,12 @@ string Server::processCommand(const string& raw_message, int client_sockfd) {
             if (users.find(to_nick) == users.end())
                 return R"({"type":"ERROR","payload":{"message":"NO_SUCH_USER"}})";
 
-            // Cria a mensagem para entrega
             time_t now = time(nullptr);
             string deliver_msg_json = R"({"type":"DELIVER_MSG", "from":")" + nickname + R"(", "payload":{"text":")" + text + R"(", "ts":)" + to_string(now) + R"(}})";
 
-            // Roteamento (Store-and-Forward)
             if (sessions.count(to_nick)) {
-                // ENTREGA IMEDIATA
                 sendToClient(sessions.at(to_nick), deliver_msg_json);
             } else {
-                // STORE-AND-FORWARD (Adiciona à fila)
                 messageQueues[to_nick].push(deliver_msg_json);
             }
 
@@ -328,7 +303,7 @@ string Server::processCommand(const string& raw_message, int client_sockfd) {
             if (users.find(apelido) == users.end())
                  return R"({"type":"ERROR","payload":{"message":"NO_SUCH_USER"}})";
             if (users.at(apelido).isLogged)
-                return R"({"type":"ERROR","payload":{"message":"BAD_STATE"}})"; // Deve estar deslogado
+                return R"({"type":"ERROR","payload":{"message":"BAD_STATE"}})"; 
 
             users.erase(apelido);
             messageQueues.erase(apelido);
