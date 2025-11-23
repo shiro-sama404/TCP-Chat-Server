@@ -288,8 +288,16 @@ void Interface::run(Client& client)
             continue;
         }
 
-        if (!client.sendJson(j))
-            error("Falha ao enviar mensagem.");
+        try {
+            string out = j.dump();
+            if (!client.sendJson(out))
+                error("Falha ao enviar mensagem.");
+        } catch (const nlohmann::json::exception& e) {
+            error(std::string("Erro ao serializar JSON: ") + e.what());
+        }
+
+
+
     } // fim do loop principal
 
     client.disconnect();
