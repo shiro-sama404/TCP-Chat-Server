@@ -85,9 +85,10 @@ Command Interface::parse(const string& line)
     string name_cmd = parts[0];
     transform(name_cmd.begin(), name_cmd.end(), name_cmd.begin(), ::tolower);
 
+    
     if (name_cmd == "register")
     {
-       if (parts.size() < 3) // colocar tratamento de erro aqui pra caso o usuário coloque sem aspas
+       if (parts.size() != 3) // colocar tratamento de erro aqui pra caso o usuário coloque sem aspas
             error("Uso: register <apelido> \"<Nome Completo>\"");
         else
         {
@@ -169,6 +170,53 @@ void Interface::run(Client& client)
     cout << "[DEBUG] nao deu erro..." << endl;
    
     client.startReceiverThread();
+
+    // Thread para processar mensagens do servidor em tempo real
+    thread receptor([&client](){
+        while (true) {
+            while (auto msg = client.popReceivedMessage()) {
+                json received;
+                try {
+                    received = json::parse(*msg);
+                } catch (const exception& e) {
+                    cerr << "\033[1;31m[Erro de Parsing]\033[0m Mensagem inválida recebida: " << *msg << endl;
+                    continue;
+                }   
+
+                string type = received.value("type", "UNKNOWN");
+
+                if (type == "LOGIN_OK" || type == "OK") {
+                    cout << "\n\033[1;32m[OK]\033[0m Comando executado com sucesso.\n> " << flush;
+                }
+                else if (type == "ERROR") {
+                    cerr << "\n\033[1;31m[Erro]\033[0m " 
+                        << received["payload"].value("message","Erro desconhecido") 
+                        << "\n> " << flush;
+                }
+                else if (type == "DELIVER_MSG") {
+                    string from = received.value("from", "Desconhecido");
+                    string text = received["payload"].value("text", "");
+                    cout << "\n\033[1;34m[" << from << "]\033[0m: " << text << "\n> " << flush;
+                }
+                else if (type == "USERS") {
+                    cout << "\n--- LISTA DE USUÁRIOS ---\n";
+                    if (received["payload"].count("users")) {
+                        for (const auto& user : received["payload"]["users"]) {
+                            string status = user.value("online", false) ? "\033[1;32mONLINE\033[0m" : "\033[1;31mOFFLINE\033[0m";
+                            cout << " \033[1;33m" << user.value("nick", "") << "\033[0m (" << user.value("name", "") << "): " << status << endl;
+                        }
+                    }
+                    cout << "-------------------------\n> " << flush;
+                }
+                else {
+                    cout << "\n\033[1;30m[DEBUG]\033[0m Mensagem não reconhecida: " << *msg << "\n> " << flush;
+                }
+            }
+            this_thread::sleep_for(chrono::milliseconds(5));
+        }
+    });
+    receptor.detach();
+
 
     string line;
 
