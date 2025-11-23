@@ -295,9 +295,13 @@ string Server::processCommand(const string& raw_message, int client_sockfd) {
             if (nickname.empty())
                 return json({{"type","ERROR"},{"payload", {{"message","BAD_STATE"}}}}).dump();
 
-            // Fechar o socket de forma limpa (a thread que chamou cleanup o fechará)
-            shutdown(client_sockfd, SHUT_RDWR);
-            return string();
+            // Atualiza estado do usuário sem fechar o socket imediatamente
+            users[nickname].isLogged = false;
+            sessions.erase(nickname);
+            fdToNickname.erase(client_sockfd);
+
+            json resp = {{"type","OK"}};
+            return resp.dump();
         }
 
         if (command_type == "SEND_MSG") {
@@ -344,17 +348,27 @@ string Server::processCommand(const string& raw_message, int client_sockfd) {
         if (command_type == "DELETE_USER") {
             string apelido = request["payload"].value("nickname", "");
 
-            if (apelido.empty() || apelido != nickname)
-                return json({{"type","ERROR"},{"payload", {{"message","UNAUTHORIZED"}}}}).dump();
+            if (apelido.empty())
+                return json({{"type","ERROR"},{"payload", {{"message","BAD_FORMAT"}}}}).dump();
             if (users.find(apelido) == users.end())
                 return json({{"type","ERROR"},{"payload", {{"message","NO_SUCH_USER"}}}}).dump();
             if (users.at(apelido).isLogged)
                 return json({{"type","ERROR"},{"payload", {{"message","BAD_STATE"}}}}).dump();
 
+            // Remove o usuário de todas as estruturas
             users.erase(apelido);
             messageQueues.erase(apelido);
+            sessions.erase(apelido);
+            for (auto it = fdToNickname.begin(); it != fdToNickname.end(); ) {
+                if (it->second == apelido)
+                    it = fdToNickname.erase(it);
+                else
+                    ++it;
+            }
+
             return json({{"type","OK"}}).dump();
         }
+
 
         return json({{"type","ERROR"},{"payload", {{"message","UNKNOWN_COMMAND"}}}}).dump();
 
