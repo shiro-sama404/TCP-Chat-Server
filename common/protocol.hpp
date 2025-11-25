@@ -13,38 +13,42 @@
 namespace Protocol
 {
 
-// Tipos de mensagens do protocolo
+/**
+ * Tipos de mensagens do protocolo
+ */
 enum class MessageType
 {
     // Comandos do cliente
-    REGISTER,
-    LOGIN,
-    LOGOUT,
-    SEND_MSG,
-    LIST_USERS,
-    DELETE_USER,
+    REGISTER,       // Registro de novo usuário
+    LOGIN,          // Login de usuário existente
+    LOGOUT,         // Desconexão
+    SEND_MSG,       // Envio de mensagem direta
+    LIST_USERS,     // Solicitação da lista de usuários
+    DELETE_USER,    // Remoção de conta
     
     // Respostas do servidor
-    OK,
-    LOGIN_OK,
-    ERROR_MSG,
-    DELIVER_MSG,
-    USERS,
+    OK,             // Confirmação genérica de sucesso
+    LOGIN_OK,       // Confirmação de login
+    ERROR_MSG,      // Mensagem de erro
+    DELIVER_MSG,    // Entrega de mensagem recebida
+    USERS,          // Lista de usuários ativos/cadastrados
     
-    UNKNOWN
+    UNKNOWN         // Tipo desconhecido ou inválido
 };
 
-// Tipos de erro
+/**
+ * Tipos de erro possíveis
+ */
 enum class ErrorType
 {
-    NICK_TAKEN,
-    BAD_FORMAT,
-    NO_SUCH_USER,
-    ALREADY_ONLINE,
-    UNAUTHORIZED,
-    BAD_STATE,
-    UNKNOWN_COMMAND,
-    INTERNAL_SERVER_ERROR
+    NICK_TAKEN,             // Apelido já está em uso
+    BAD_FORMAT,             // Formato da mensagem incorreto
+    NO_SUCH_USER,           // Usuário não encontrado
+    ALREADY_ONLINE,         // Usuário já está logado
+    UNAUTHORIZED,           // Ação não autorizada (ex: enviar msg sem login)
+    BAD_STATE,              // Estado inválido do servidor/cliente
+    UNKNOWN_COMMAND,        // Comando não reconhecido
+    INTERNAL_SERVER_ERROR   // Erro interno genérico
 };
 
 // Limites do protocolo
@@ -53,7 +57,9 @@ constexpr size_t MAX_FULLNAME_LENGTH = 128;
 constexpr size_t MAX_MESSAGE_LENGTH = 4096;
 constexpr size_t MAX_JSON_SIZE = 8192;
 
-// Estruturas de dados
+/**
+ * Estrutura de informações de um usuário
+ */
 struct UserInfo
 {
     std::string nickname;
@@ -61,20 +67,18 @@ struct UserInfo
     bool isOnline;
 };
 
-// Funções de validação
+// ==================== VALIDAÇÃO ====================
 bool isValidNickname(const std::string& nick);
 bool isValidFullName(const std::string& name);
 bool isValidMessage(const std::string& msg);
 
-// Conversão MessageType <-> string
+// ==================== CONVERSÃO DE TIPOS ====================
 MessageType stringToMessageType(const std::string& type);
 std::string messageTypeToString(MessageType type);
-
-// Conversão ErrorType <-> string
 ErrorType stringToErrorType(const std::string& error);
 std::string errorTypeToString(ErrorType error);
 
-// Builders de mensagens (cliente -> servidor)
+// ==================== BUILDERS - REQUISIÇÕES (Cliente -> Servidor) ====================
 nlohmann::json buildRegisterRequest(const std::string& nickname, const std::string& fullName);
 nlohmann::json buildLoginRequest(const std::string& nickname);
 nlohmann::json buildLogoutRequest();
@@ -82,14 +86,14 @@ nlohmann::json buildSendMessageRequest(const std::string& to, const std::string&
 nlohmann::json buildListUsersRequest();
 nlohmann::json buildDeleteUserRequest(const std::string& nickname);
 
-// Builders de respostas (servidor -> cliente)
+// ==================== BUILDERS - RESPOSTAS (Servidor -> Cliente) ====================
 nlohmann::json buildOkResponse();
 nlohmann::json buildLoginOkResponse(const std::string& nickname);
 nlohmann::json buildErrorResponse(ErrorType error);
 nlohmann::json buildDeliverMessage(const std::string& from, const std::string& text, time_t timestamp);
 nlohmann::json buildUsersListResponse(const std::vector<UserInfo>& users);
 
-// Parsing seguro
+// ==================== PARSING SEGURO ====================
 class ParseException : public std::runtime_error
 {
 public:
