@@ -16,25 +16,28 @@ using namespace std;
 
 Server::Server(int p) : port(p), server_sockfd(-1), isRunning(false) {}
 
-Server::~Server() {
-    if (isRunning) {
+Server::~Server()
+{
+    if (isRunning)
+    {
         isRunning = false;
-        if (server_sockfd >= 0) {
+        if (server_sockfd >= 0)
+        {
             shutdown(server_sockfd, SHUT_RDWR);
             close(server_sockfd);
         }
-        if (acceptorThread.joinable()) {
+        if (acceptorThread.joinable())
             acceptorThread.join();
-        }
     }
 }
 
 // ==================== INICIALIZAÇÃO ====================
 
-bool Server::start() {
-    // 1. Cria socket
+bool Server::start()
+{
     server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_sockfd < 0) {
+    if (server_sockfd < 0)
+    {
         perror("[Server] Erro ao criar socket");
         return false;
     }
@@ -43,22 +46,22 @@ bool Server::start() {
     int opt = 1;
     setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    // 2. Configura endereço
+    // Configura endereço
     sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(port);
 
-    // 3. Bind
-    if (bind(server_sockfd, (sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+    if (bind(server_sockfd, (sockaddr*)&serv_addr, sizeof(serv_addr)) < 0)
+    {
         perror("[Server] Erro ao fazer bind");
         close(server_sockfd);
         return false;
     }
 
-    // 4. Listen
-    if (listen(server_sockfd, 10) < 0) {
+    if (listen(server_sockfd, 10) < 0)
+    {
         perror("[Server] Erro ao fazer listen");
         close(server_sockfd);
         return false;
@@ -70,8 +73,10 @@ bool Server::start() {
     return true;
 }
 
-void Server::run() {
-    if (!start()) {
+void Server::run()
+{
+    if (!start())
+    {
         cerr << "[Server] Falha ao iniciar servidor" << endl;
         return;
     }
@@ -83,17 +88,19 @@ void Server::run() {
 
 // ==================== ACCEPTOR LOOP ====================
 
-void Server::acceptorLoop() {
+void Server::acceptorLoop()
+{
     sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    while (isRunning) {
+    while (isRunning)
+    {
         int client_sockfd = accept(server_sockfd, (sockaddr*)&client_addr, &client_len);
 
-        if (client_sockfd < 0) {
-            if (isRunning) {
+        if (client_sockfd < 0)
+        {
+            if (isRunning)
                 perror("[Server] Erro em accept");
-            }
             continue;
         }
 
@@ -112,9 +119,11 @@ void Server::acceptorLoop() {
 
 // ==================== CLIENT HANDLER ====================
 
-void Server::handleClient(int client_sockfd, const string& client_ip) {
+void Server::handleClient(int client_sockfd, const string& client_ip)
+{
     // Configura socket como não-bloqueante
-    if (!SocketUtils::setNonBlocking(client_sockfd)) {
+    if (!SocketUtils::setNonBlocking(client_sockfd))
+    {
         cerr << "[Server] Erro ao configurar socket não-bloqueante" << endl;
         close(client_sockfd);
         return;
@@ -124,19 +133,19 @@ void Server::handleClient(int client_sockfd, const string& client_ip) {
     string buffer;
 
     try {
-        while (isRunning) {
+        while (isRunning)
+        {
             // Tenta receber mensagem
             auto msg_opt = SocketUtils::receiveMessage(client_sockfd, buffer);
             
-            if (msg_opt) {
+            if (msg_opt)
+            {
                 // Mensagem completa recebida
                 string response = handler.processCommand(*msg_opt, client_sockfd);
                 
-                if (!response.empty()) {
-                    if (!sendToClient(client_sockfd, response)) {
+                if (!response.empty())
+                    if (!sendToClient(client_sockfd, response))
                         throw runtime_error("Erro ao enviar resposta");
-                    }
-                }
             }
             else {
                 // Sem dados ou erro
@@ -144,21 +153,20 @@ void Server::handleClient(int client_sockfd, const string& client_ip) {
                 char test;
                 ssize_t n = recv(client_sockfd, &test, 1, MSG_PEEK | MSG_DONTWAIT);
                 
-                if (n == 0) {
+                if (n == 0)
                     // Conexão fechada
                     throw runtime_error("Conexão fechada pelo cliente");
-                }
-                else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
                     // Erro real
                     throw runtime_error(string("Erro de rede: ") + strerror(errno));
-                }
                 
                 // Sem dados disponíveis: aguarda
                 this_thread::sleep_for(chrono::milliseconds(10));
             }
         }
     }
-    catch (const exception& e) {
+    catch (const exception& e)
+    {
         cerr << "[Server] Cliente (FD: " << client_sockfd << ", IP: " << client_ip 
              << ") desconectado. Motivo: " << e.what() << endl;
     }
@@ -168,11 +176,13 @@ void Server::handleClient(int client_sockfd, const string& client_ip) {
 
 // ==================== LIMPEZA DE SESSÃO ====================
 
-void Server::cleanupSession(int client_sockfd) {
+void Server::cleanupSession(int client_sockfd)
+{
     lock_guard<mutex> lock(stateMutex);
 
     auto it = fdToNickname.find(client_sockfd);
-    if (it != fdToNickname.end()) {
+    if (it != fdToNickname.end())
+    {
         string nickname = it->second;
 
         // Remove sessão
@@ -180,9 +190,8 @@ void Server::cleanupSession(int client_sockfd) {
         fdToNickname.erase(it);
 
         // Marca usuário como offline
-        if (users.count(nickname)) {
+        if (users.count(nickname))
             users[nickname].isLogged = false;
-        }
 
         cout << "[Server] Sessão limpa para: " << nickname << endl;
     }
@@ -193,17 +202,19 @@ void Server::cleanupSession(int client_sockfd) {
 
 // ==================== OPERAÇÕES AUXILIARES ====================
 
-bool Server::sendToClient(int sockfd, const string& json_message) {
+bool Server::sendToClient(int sockfd, const string& json_message)
+{
     return SocketUtils::sendMessage(sockfd, json_message);
 }
 
-void Server::deliverPendingMessages(int client_sockfd, const string& nickname) {
-    // Nota: chamador deve ter lock do stateMutex
-    
-    if (messageQueues.count(nickname)) {
+void Server::deliverPendingMessages(int client_sockfd, const string& nickname)
+{
+    if (messageQueues.count(nickname))
+    {
         MessageQueue& queue = messageQueues[nickname];
 
-        while (!queue.empty()) {
+        while (!queue.empty())
+        {
             string msg = queue.front();
             queue.pop();
 
