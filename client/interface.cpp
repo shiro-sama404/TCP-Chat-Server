@@ -17,6 +17,9 @@ namespace Colors
     const string BLUE = "\033[1;34m";
     const string YELLOW = "\033[1;33m";
     const string GRAY = "\033[1;30m";
+
+    // Na realidade move o cursor para o início e limpa a linha (pra sobrescrever o prompt)
+    const string CLEAR_LINE = "\r\033[K";
 }
 
 // ==================== INTERFACE ====================
@@ -191,28 +194,46 @@ void Interface::run(Client& client)
         return;
     }
 
-    // Inicia thread receptora
+    // Inicia thread de recepção de rede (Socket -> Queue)
     client.startReceiverThread();
+
+    // Thread de impressão
+    atomic<bool> running{true};
+    thread printerThread([&]()
+    {
+        while (running && client.isConnected())
+        {
+            auto msg_str = client.popReceivedMessage();
+            if (msg_str)
+            {
+                try
+                {
+                    cout << Colors::CLEAR_LINE << flush;
+                    
+                    json msg = json::parse(*msg_str);
+                    displayMessage(msg);
+                    
+                    prompt(); 
+                }
+                catch (const json::parse_error&)
+                {
+                    cout << Colors::CLEAR_LINE << flush;
+                    error("Mensagem JSON inválida recebida.");
+                    prompt();
+                }
+            }
+            this_thread::sleep_for(chrono::milliseconds(10));
+        }
+    });
+    // ====================================================================
 
     string line;
 
-    // Loop principal
+    // Loop principal (Apenas para Input e Envio)
     while (true)
     {
-        // Processa mensagens recebidas
-        while (auto msg_str = client.popReceivedMessage())
-            try
-            {
-                json msg = json::parse(*msg_str);
-                displayMessage(msg);
-            }
-            catch (const json::parse_error& e)
-            {
-                error("Mensagem JSON inválida recebida.");
-            }
+        if (line.empty()) prompt();
 
-        // Lê comando do usuário
-        prompt();
         if (!getline(cin, line)) break;
 
         if (line.empty()) continue;
@@ -226,24 +247,26 @@ void Interface::run(Client& client)
             continue;
         }
 
-        // Parse do comando
         Command cmd = parse(line);
         if (cmd.type == CommandType::Unknown) continue;
 
-        // Comando "quit" encerra o programa
         if (cmd.type == CommandType::Quit)
         {
+            running = false;
+            
             client.sendJson(Protocol::buildLogoutRequest().dump());
             this_thread::sleep_for(chrono::milliseconds(100));
+            
             cout << "Encerrando cliente..." << endl;
             client.disconnect();
-            return;
+            break;
         }
 
-        // Constrói mensagem JSON usando Protocol
+        // Constrói e envia mensagem JSON
         json request;
         try
         {
+            bool shouldSend = true;
             switch (cmd.type)
             {
                 case CommandType::Register:
@@ -265,18 +288,23 @@ void Interface::run(Client& client)
                     request = Protocol::buildDeleteUserRequest(cmd.args[0]);
                     break;
                 default:
-                    continue;
+                    shouldSend = false;
+                    break;
             }
 
-            // Envia ao servidor
-            if (!client.sendJson(request.dump()))
-                error("Falha ao enviar mensagem ao servidor.");
+            if (shouldSend)
+                if (!client.sendJson(request.dump()))
+                    error("Falha ao enviar mensagem ao servidor.");
         }
         catch (const exception& e)
         {
             error(string("Erro ao processar comando: ") + e.what());
         }
     }
+
+    running = false;
+    if (printerThread.joinable())
+        printerThread.join();
 
     client.disconnect();
 }
