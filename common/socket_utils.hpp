@@ -10,7 +10,8 @@
  * Abstrai send/recv de baixo nível com tratamento de erros.
  */
 
-namespace SocketUtils {
+namespace SocketUtils
+{
 
 /**
  * Envia uma mensagem JSON com framing (adiciona \n no final).
