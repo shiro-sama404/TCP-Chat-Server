@@ -17,7 +17,6 @@ int main(int argc, char* argv[])
         std::cout << "Iniciando SERVIDOR na porta TCP: " << port << std::endl;
         Server server(port);
         server.run(); // Bloqueia aqui
-        
     }
     catch (const std::exception& e)
     {

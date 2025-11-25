@@ -22,7 +22,6 @@ int main(int argc, char* argv[])
         Client client;
         Interface interface;
         interface.run(client);
-        
     }
     catch (const std::exception& e)
     {
