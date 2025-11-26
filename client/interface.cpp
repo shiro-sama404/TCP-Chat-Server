@@ -266,7 +266,6 @@ void Interface::run(Client& client)
         json request;
         try
         {
-            bool shouldSend = true;
             switch (cmd.type)
             {
                 case CommandType::Register:
@@ -288,13 +287,11 @@ void Interface::run(Client& client)
                     request = Protocol::buildDeleteUserRequest(cmd.args[0]);
                     break;
                 default:
-                    shouldSend = false;
-                    break;
+                    continue;
             }
 
-            if (shouldSend)
-                if (!client.sendJson(request.dump()))
-                    error("Falha ao enviar mensagem ao servidor.");
+            if (!client.sendJson(request.dump()))
+                error("Falha ao enviar mensagem ao servidor.");
         }
         catch (const exception& e)
         {
