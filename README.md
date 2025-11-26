@@ -150,23 +150,26 @@ Veja `docs/arquitetura.md` para detalhes.
 ```
 TCP-Chat-Server/
 ├── Makefile                    # Compilação
+├── CMakeLists.txt              # Compilação
 ├── README.md                   # Este arquivo
+├── LICENSE                     # Licença deste projeto
 ├── docs/
-│   ├── protocolo.md           # Especificação do protocolo
-│   └── arquitetura.md         # Diagramas e decisões
+│   ├── relatório.pdf           # Relatório deste trabalho
 ├── common/                     # Código compartilhado
-│   ├── protocol.hpp/cpp       # Validação e builders JSON
-│   └── socket_utils.hpp/cpp   # Funções auxiliares de socket
+│   ├── protocol.hpp/cpp        # Validação e builders JSON
+│   └── socket_utils.hpp/cpp    # Funções auxiliares de socket
 ├── server/
-│   ├── main.cpp               # Entry point do servidor
-│   ├── server.hpp/cpp         # Classe Server
+│   ├── main.cpp                # Entry point do servidor
+│   ├── server.hpp/cpp          # Classe Server
 │   └── command_handler.hpp/cpp # Processamento de comandos
 ├── client/
-│   ├── main.cpp               # Entry point do cliente
-│   ├── client.hpp/cpp         # Classe Client
-│   └── interface.hpp/cpp      # Interface CLI
+│   ├── main.cpp                # Entry point do cliente
+│   ├── client.hpp/cpp          # Classe Client
+│   └── interface.hpp/cpp       # Interface CLI
+├── tests/
+│   ├── test_suite.sh           # Arquivo automatizado de testes
 └── libs/
-    └── nlohmann/json.hpp      # Biblioteca JSON
+    └── nlohmann/json.hpp       # Biblioteca JSON
 ```
 
 ## ⚙️ Limitações e Configurações
