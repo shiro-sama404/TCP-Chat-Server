@@ -206,6 +206,13 @@ string CommandHandler::handleDeleteUser(const json& request, int client_sockfd)
         
         // Verifica se está online
         if (server.getUsers().at(nickname).isLogged)
+        {
+            server.getUsers()[nickname].isLogged = false;
+            server.getSessions().erase(nickname);
+            server.getFdToNickname().erase(client_sockfd);
+            cout << "[Server] Sessão encerrada para deleção: " << nickname << endl;
+        }
+        else
             return buildErrorResponse(ErrorType::BAD_STATE).dump();
         
         // Remove usuário e dados associados
