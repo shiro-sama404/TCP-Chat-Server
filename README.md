@@ -124,8 +124,6 @@ Uma vez conectado, você pode usar os seguintes comandos:
 {"type":"ERROR","payload":{"message":"NICK_TAKEN"}}
 ```
 
-Documentação completa: `docs/protocolo.md`
-
 ## 🏗️ Arquitetura
 
 ### Servidor
@@ -142,8 +140,6 @@ Documentação completa: `docs/protocolo.md`
 - **Thread principal**: Interface CLI e envio de comandos
 - **Thread receptora**: Recebe mensagens do servidor assincronamente
 - **Fila thread-safe**: Armazena mensagens recebidas para exibição
-
-Veja `docs/arquitetura.md` para detalhes.
 
 ## 📁 Estrutura do Projeto
 
